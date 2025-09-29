@@ -1,240 +1,135 @@
+/*
+	Author: Jan Holy
+	Date: 28. 9. 2025
+*/
 using System;
-using System.Collections.Generic;
 
-namespace RightHandMaze
+public class Maze
 {
-		// Směry pohledu příšery v pevném pořadí
-    enum Direction { Up = 0, Right = 1, Down = 2, Left = 3 }
+    private char[,] mazeGrid;
+    private int mazeWidth, mazeHeight;
+		private bool alreadyRotated; // pro pouze jednu rotaci prisery
 
-		// Jednoduchy bod
-    struct Point
+    private int beastX, beastY;     // pozice prisery
+    private int beastDirection;     // smer: 0 = nahoru, 1 = doprava, 2 = dolu, 3 = doleva
+
+    // Posuny pro jednotlive smery (nahoru, doprava, dolu, doleva)
+    private readonly int[] deltaX = { 0, 1, 0, -1 };
+    private readonly int[] deltaY = { -1, 0, 1, 0 };
+
+    // Znakove reprezentace smeru
+    private readonly char[] directionSymbols = { '^', '>', 'v', '<' };
+
+    public void LoadFromInput()
     {
-        public int X;
-        public int Y;
+        mazeWidth = int.Parse(Console.ReadLine());
+        mazeHeight = int.Parse(Console.ReadLine());
+        mazeGrid = new char[mazeHeight, mazeWidth];
 
-        public Point(int x, int y)
+        for (int y = 0; y < mazeHeight; y++)
         {
-            X = x; Y = y;
-        }
-
-				// Vrátí novou pozici posunutou o 1 políčko ve směru d
-        public Point Move(Direction d)
-        {
-            switch (d)
+            string line = Console.ReadLine();
+            for (int x = 0; x < mazeWidth; x++)
             {
-                case Direction.Up:    return new Point(X, Y - 1);
-                case Direction.Right: return new Point(X + 1, Y);
-                case Direction.Down:  return new Point(X, Y + 1);
-                case Direction.Left:  return new Point(X - 1, Y);
-                default:              return this;
-            }
-        }
-    }
+                char cell = line[x];
+                mazeGrid[y, x] = cell;
 
-		// Reprezentace bludiště: statická mřížka znaků
-    sealed class Maze
-    {
-        private readonly char[,] _cells;
-        public int Width { get; private set; }
-        public int Height { get; private set; }
-
-        public Maze(int width, int height, char[,] cells)
-        {
-            Width = width;
-            Height = height;
-            _cells = cells;
-        }
-				/*
-				## Načte bludiště ze standardního vstupu. 
-        ## Vstup: nejprve šířka, výška (mohou být na jednom či více řádcích), poté 'height' řádků mapy.
-        ## V mapě: 'X' = zeď, '.' = volno, '^','>','v','<' = start příšery + směr (pole je volné).
-        ## Výstup: Maze + pozice a směr příšery (out parametry).
-				*/
-        public static Maze FromInput(out Point monsterPos, out Direction monsterDir)
-        {
-            monsterPos = new Point(0, 0);
-            monsterDir = Direction.Right;
-
-            // --- 1) Načti šířku a výšku (dovolí je mít i na jednom řádku) ---
-            var tokens = new Queue<string>();
-            while (tokens.Count < 2)
-            {
-                string line = Console.ReadLine();
-                if (line == null) throw new InvalidOperationException("Neúplný vstup (chybí šířka/výška).");
-                var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < parts.Length; i++) tokens.Enqueue(parts[i]);
-            }
-            int width = int.Parse(tokens.Dequeue());
-            int height = int.Parse(tokens.Dequeue());
-						
-						// --- 2) načtení samotné mapy ---
-            var cells = new char[height, width];
-
-            for (int y = 0; y < height; y++)
-            {
-                string line = Console.ReadLine();
-                if (line == null) throw new InvalidOperationException("Chybí řádek mapy.");
-                if (line.Length < width)
-                    throw new InvalidOperationException("Řádek je kratší než zadaná šířka.");
-
-                for (int x = 0; x < width; x++)
+                // Najdi pocatecni pozici prisery a jeji smer
+                for (int direction = 0; direction < 4; direction++) // predejiti if kaskade a switch kaskade
                 {
-                    char ch = line[x];
-                    if (ch == 'X' || ch == '.')
+                    if (cell == directionSymbols[direction])
                     {
-                        cells[y, x] = ch;
-                    }
-                    else if (ch == '^' || ch == '>' || ch == 'v' || ch == '<')
-                    {
-                        monsterPos = new Point(x, y);
-                        switch (ch)
-                        {
-                            case '^': monsterDir = Direction.Up; break;
-                            case '>': monsterDir = Direction.Right; break;
-                            case 'v': monsterDir = Direction.Down; break;
-                            case '<': monsterDir = Direction.Left; break;
-                        }
-                        cells[y, x] = '.'; // start je volné pole
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("Neznámý znak mapy: " + ch);
+                        beastX = x;
+                        beastY = y;
+                        beastDirection = direction;
+                        mazeGrid[y, x] = '.'; // Odstran priseru z mapy
                     }
                 }
             }
-
-            return new Maze(width, height, cells);
-        }
-				
-				// Vrací true, pokud je daná pozice zeď nebo mimo mapu (mimo mapu bereme jako zeď)
-        public bool IsWall(Point p)
-        {
-            if (p.X < 0 || p.X >= Width || p.Y < 0 || p.Y >= Height)
-                return true; // mimo mapu bereme jako zeď
-            return _cells[p.Y, p.X] == 'X';
-        }
-
-				// Opačná pomocná funkce (čitelnost ve vyšší logice)
-        public bool IsFree(Point p)
-        {
-            return !IsWall(p);
-        }
-
-				// Vytiskne mapu v přesném formátu vstupu: zdi + volná místa + příšera jako ^ > v <
-        public void PrintWithMonster(Point monsterPos, Direction monsterDir)
-        {
-            for (int y = 0; y < Height; y++)
-            {
-                var line = new char[Width];
-                for (int x = 0; x < Width; x++)
-                    line[x] = _cells[y, x];
-
-                // vykresli příšeru jen na správný řádek
-                if (y == monsterPos.Y)
-                    line[monsterPos.X] = DirToChar(monsterDir);
-
-                Console.WriteLine(new string(line));
-            }
-            Console.WriteLine(); // prázdný řádek po každém výpisu
-        }
-
-        private static char DirToChar(Direction d)
-        {
-            switch (d)
-            {
-                case Direction.Up: return '^';
-                case Direction.Right: return '>';
-                case Direction.Down: return 'v';
-                case Direction.Left: return '<';
-                default: return '?';
-            }
         }
     }
 
-    sealed class Monster
+    public void Simulate(int numberOfSteps)
     {
-        public Point Position { get; private set; } // aktuální pozice (souřadnice x,y)
-        public Direction Facing { get; private set; } // aktuální směr pohledu
-
-        public Monster(Point start, Direction facing)
+        for (int step = 1; step <= numberOfSteps; step++)
         {
-            Position = start;
-            Facing = facing;
-        }
-				
-				/*
-				## Provede JEDEN tah podle pravidla pravé ruky.
-        ## Velmi důležité: jeden tah = jediná akce!
-        ##  - pokud je VPRAVO volno -> pouze se OTOČ vpravo (bez posunu),
-        ##  - jinak pokud je VEPŘEDU volno -> udělej krok VPŘED,
-        ##  - jinak pokud je VLEVO volno -> pouze se OTOČ vlevo,
-        ##  - jinak -> pouze se OTOČ o 180° (na místě).
-				*/
-
-        // Pravidlo pravé ruky: vpravo -> vpřed -> vlevo -> otočka.
-        public void StepRightHand(Maze maze)
-        {
-            Direction rightDir = TurnRight(Facing);
-            Direction leftDir = TurnLeft(Facing);
-
-            Point posRightAhead = Position.Move(rightDir);
-            if (maze.IsFree(posRightAhead))
-            {
-                Facing = rightDir;
-                Position = posRightAhead;
-                return;
-            }
-
-            Point posAhead = Position.Move(Facing);
-            if (maze.IsFree(posAhead))
-            {
-                Position = posAhead;
-                return;
-            }
-
-            Point posLeftAhead = Position.Move(leftDir);
-            if (maze.IsFree(posLeftAhead))
-            {
-                Facing = leftDir;
-                Position = posLeftAhead;
-                return;
-            }
-
-            // všude zeď – otoč se o 180° a vrať se
-            Facing = TurnRight(TurnRight(Facing));
-            Position = Position.Move(Facing);
-        }
-
-        private static Direction TurnRight(Direction d)
-        {
-            return (Direction)(((int)d + 1) & 3);
-        }
-
-        private static Direction TurnLeft(Direction d)
-        {
-            return (Direction)(((int)d + 3) & 3);
+            Console.WriteLine(step + ". krok"); // formalni stranka
+            PerformStep();
+            PrintMaze();
         }
     }
 
-    static class Program
+    private void PerformStep()
     {
-        static void Main()
+        int rightDirection = (beastDirection + 1) % 4; // ^ - 0, > - 1, v - 2, < - 3, cyklicky
+        int rightX = beastX + deltaX[rightDirection];
+        int rightY = beastY + deltaY[rightDirection];
+
+
+				// 1. Pokud je po prave strane volno, otoc se doprava
+				if (IsCellFree(rightX, rightY) && alreadyRotated == false)
+				{
+					alreadyRotated = true; // uz se jednou otocila
+					beastDirection = rightDirection;
+					return;
+				}
+
+        // 2. Pokud je pred priserou volno, jdi dopredu
+        int frontX = beastX + deltaX[beastDirection];
+        int frontY = beastY + deltaY[beastDirection];
+        if (IsCellFree(frontX, frontY))
         {
-            Point startPos; // {x,y} startovniho bodu
-            Direction startDir; // Zacinajici smer
-            Maze maze = Maze.FromInput(out startPos, out startDir);
-
-						Console.WriteLine();
-
-            var monster = new Monster(startPos, startDir);
-
-            for (int i = 0; i < 20; i++)
-            {
-                monster.StepRightHand(maze);
-								Console.WriteLine(i+". krok");
-                maze.PrintWithMonster(monster.Position, monster.Facing);
-            }
+					alreadyRotated = false;
+          beastX = frontX;
+          beastY = frontY;
+          return;
         }
+
+
+        // 3. Pokud je vlevo volno, otoc se doleva
+        int leftDirection = (beastDirection + 3) % 4;
+        int leftX = beastX + deltaX[leftDirection];
+        int leftY = beastY + deltaY[leftDirection];
+        if (IsCellFree(leftX, leftY))
+        {
+            beastDirection = leftDirection;
+            return;
+        }
+
+        // 4. Jinak otoc se doprava
+        beastDirection = rightDirection;
+    }
+
+		// bool pro identifikaci prazdnosti :)
+    private bool IsCellFree(int x, int y)
+    {
+        return x >= 0 && x < mazeWidth &&
+               y >= 0 && y < mazeHeight &&
+               mazeGrid[y, x] == '.';
+    }
+
+		// vypis labyrintu
+    private void PrintMaze()
+    {
+        for (int y = 0; y < mazeHeight; y++)
+        {
+            for (int x = 0; x < mazeWidth; x++)
+            {
+                if (x == beastX && y == beastY)
+                    Console.Write(directionSymbols[beastDirection]);
+                else
+                    Console.Write(mazeGrid[y, x]);
+            }
+            Console.WriteLine();
+        }
+        Console.WriteLine(); // prazdny radek mezi kroky
+    }
+
+    public static void Main()
+    {
+        Maze maze = new Maze();
+        maze.LoadFromInput(); // nacteni labyrintu
+				Console.WriteLine(); // mezera mezi vystupem a vstupem
+        maze.Simulate(20); // test
     }
 }
-
